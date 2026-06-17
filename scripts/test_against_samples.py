@@ -47,8 +47,8 @@ def test_samples():
         print(f"Avg time per file: {(duration/total*1000):.2f}ms")
 
     if failures:
-        print("\nSome failures (first 10):")
-        for fail in failures[:10]:
+        print(f"\nAll {len(failures)} failures:")
+        for fail in failures:
             print(fail)
 
 if __name__ == "__main__":

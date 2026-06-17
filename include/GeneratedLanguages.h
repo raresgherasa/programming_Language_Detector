@@ -15,3 +15,5 @@ extern const DisambiguationEntry GENERATED_DISAMBIG_MAP[];
 extern const size_t GENERATED_DISAMBIG_MAP_SIZE;
 extern const LangEntry GENERATED_KEYWORDS[];
 extern const size_t GENERATED_KEYWORDS_SIZE;
+extern const LangEntry GENERATED_MODELINE_MAP[];
+extern const size_t GENERATED_MODELINE_MAP_SIZE;

@@ -5,6 +5,9 @@ import subprocess
 import json
 import os
 import sys
+import queue
+import threading
+import time
 
 # High-fidelity Native GTK support
 HAS_GTK = False
@@ -39,7 +42,7 @@ class FastDetectGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("FastDetect | Professional")
-        self.root.geometry("640x520")
+        self.root.geometry("640x560")
         self.root.configure(bg="#121214")
         
         self.clr_bg = "#121214"
@@ -48,8 +51,12 @@ class FastDetectGUI:
         self.clr_text = "#ffffff"
         self.clr_dim = "#a0a0a0"
 
+        self.update_queue = queue.Queue()
         self.setup_styles()
         self.create_widgets()
+        
+        # Start queue processing loop
+        self.root.after(100, self.process_queue)
 
     def setup_styles(self):
         style = ttk.Style()
@@ -57,29 +64,46 @@ class FastDetectGUI:
         style.configure('TFrame', background=self.clr_bg)
         style.configure('TLabel', background=self.clr_bg, foreground=self.clr_text, font=('Inter', 11))
         style.configure("TProgressbar", thickness=10, background=self.clr_accent, troughcolor="#333")
+        style.configure("Vertical.TScrollbar", troughcolor=self.clr_card, background="#333", bordercolor=self.clr_card, arrowcolor=self.clr_accent)
 
     def create_widgets(self):
         header = tk.Frame(self.root, bg=self.clr_bg)
-        header.pack(fill="x", pady=30)
+        header.pack(fill="x", pady=25)
         tk.Label(header, text="FastDetect", font=('Inter', 30, 'bold'), fg=self.clr_accent, bg=self.clr_bg).pack()
         tk.Label(header, text="NATIVE HIGH-PERFORMANCE ENGINE", font=('Inter', 8, 'bold'), fg=self.clr_dim, bg=self.clr_bg).pack()
 
         btn_container = tk.Frame(self.root, bg=self.clr_bg)
-        btn_container.pack(pady=10)
+        btn_container.pack(pady=5)
 
-        # "Directly with the app name" experience
+        # File Scanner Button
         self.btn_scan = tk.Button(btn_container, text="OPEN FILE", command=self.browse, 
                                  bg=self.clr_accent, fg="#000", font=('Inter', 9, 'bold'), 
-                                 padx=25, pady=12, bd=0, cursor="hand2")
+                                 padx=25, pady=12, bd=0, cursor="hand2", activebackground="#00c2cc", activeforeground="#000")
         self.btn_scan.pack(side="left", padx=10)
+        
+        # Hover events
+        self.btn_scan.bind("<Enter>", lambda e: self.btn_scan.config(bg="#00c2cc"))
+        self.btn_scan.bind("<Leave>", lambda e: self.btn_scan.config(bg=self.clr_accent))
 
+        # Folder Scanner Button
         self.btn_folder = tk.Button(btn_container, text="OPEN FOLDER", command=self.browse_dir, 
                                    bg=self.clr_card, fg=self.clr_text, font=('Inter', 9, 'bold'), 
-                                   padx=25, pady=12, bd=0, cursor="hand2", highlightthickness=1, highlightbackground="#444")
+                                   padx=25, pady=12, bd=0, cursor="hand2", highlightthickness=1, 
+                                   highlightbackground="#444", activebackground="#2b2b30", activeforeground=self.clr_text)
         self.btn_folder.pack(side="left", padx=10)
+        
+        self.btn_folder.bind("<Enter>", lambda e: self.btn_folder.config(bg="#2b2b30"))
+        self.btn_folder.bind("<Leave>", lambda e: self.btn_folder.config(bg=self.clr_card))
 
-        self.res_card = tk.Frame(self.root, bg=self.clr_card, padx=30, pady=30, highlightthickness=1, highlightbackground="#333")
-        self.res_card.pack(padx=40, pady=30, fill="both", expand=True)
+        self.res_card = tk.Frame(self.root, bg=self.clr_card, padx=30, pady=25, highlightthickness=1, highlightbackground="#333")
+        self.res_card.pack(padx=40, pady=20, fill="both", expand=True)
+
+        self.reset_res_card()
+
+    def reset_res_card(self):
+        # Clear the results card
+        for widget in self.res_card.winfo_children():
+            widget.destroy()
 
         self.lbl_lang = tk.Label(self.res_card, text="Ready to Analyze", font=('Inter', 22, 'bold'), fg=self.clr_text, bg=self.clr_card)
         self.lbl_lang.pack(anchor="w")
@@ -96,15 +120,22 @@ class FastDetectGUI:
 
     def browse(self):
         f = get_native_file("Select Code File", folder=False)
-        if f: self.analyze(f)
+        if f: 
+            self.reset_res_card()
+            self.analyze(f)
 
     def browse_dir(self):
         d = get_native_file("Select Project Folder", folder=True)
-        if d: self.analyze_dir(d)
+        if d: 
+            self.reset_res_card()
+            self.analyze_dir(d)
 
     def analyze(self, path):
         try:
             res = subprocess.run([BINARY, path], capture_output=True, text=True)
+            if res.returncode != 0:
+                raise Exception(f"Engine exited with status {res.returncode}")
+                
             data = json.loads(res.stdout)
             lang = data.get('language', 'Unknown')
             conf = data.get('confidence', 0.0)
@@ -118,10 +149,162 @@ class FastDetectGUI:
             messagebox.showerror("Error", f"Failed to run engine: {e}")
 
     def analyze_dir(self, path):
-        self.lbl_lang.config(text="DIRECTORY SCAN")
-        self.lbl_meta.config(text=f"Selected Folder: {path}\nDirectory-level signature mapping completed.")
-        self.prog['value'] = 100
-        self.lbl_conf.config(text="100%")
+        self.lbl_lang.config(text="SCANNING DIRECTORY...")
+        self.lbl_meta.config(text=f"Scanning directory: {path}\nPlease wait...")
+        self.prog['value'] = 0
+        self.lbl_conf.config(text="0%")
+        
+        # Start scanning in background thread
+        threading.Thread(target=self._scan_dir_worker, args=(path,), daemon=True).start()
+
+    def _scan_dir_worker(self, path):
+        start_time = time.time()
+        files_to_scan = []
+        ignored_dirs = {'.git', '.vscode', '.idea', 'node_modules', 'build', 'bin', 'lib', 'dist', '__pycache__', 'venv', '.venv', 'target', 'out'}
+        
+        for root_dir, dirs, filenames in os.walk(path):
+            dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith('.')]
+            for f in filenames:
+                if not f.startswith('.'):
+                    files_to_scan.append(os.path.join(root_dir, f))
+                    
+        total_files = len(files_to_scan)
+        if total_files == 0:
+            self.update_queue.put({'type': 'result_dir', 'results': {}, 'duration': 0, 'total_files': 0})
+            return
+            
+        results = {}
+        for idx, file_path in enumerate(files_to_scan):
+            # Update GUI progress occasionally
+            if idx % max(1, total_files // 40) == 0 or idx == total_files - 1:
+                percent = (idx + 1) / total_files * 100
+                self.update_queue.put({
+                    'type': 'progress',
+                    'percent': percent,
+                    'filename': os.path.basename(file_path)
+                })
+                
+            try:
+                res = subprocess.run([BINARY, file_path], capture_output=True, text=True)
+                if res.returncode == 0:
+                    data = json.loads(res.stdout)
+                    lang = data.get('language', 'Unknown')
+                    if lang == "Unknown" or not lang:
+                        continue
+                    size = os.path.getsize(file_path)
+                    
+                    if lang not in results:
+                        results[lang] = {'count': 0, 'size': 0}
+                    results[lang]['count'] += 1
+                    results[lang]['size'] += size
+            except Exception:
+                pass
+                
+        duration = time.time() - start_time
+        self.update_queue.put({
+            'type': 'result_dir',
+            'results': results,
+            'duration': duration,
+            'total_files': total_files
+        })
+
+    def process_queue(self):
+        try:
+            while True:
+                msg = self.update_queue.get_nowait()
+                msg_type = msg.get('type')
+                if msg_type == 'progress':
+                    percent = msg.get('percent', 0)
+                    filename = msg.get('filename', '')
+                    self.prog['value'] = percent
+                    self.lbl_conf.config(text=f"{int(percent)}%")
+                    self.lbl_meta.config(text=f"Scanning: {filename}")
+                elif msg_type == 'result_dir':
+                    self.show_dir_results(msg.get('results'), msg.get('duration'), msg.get('total_files'))
+                elif msg_type == 'error':
+                    messagebox.showerror("Scan Error", msg.get('error'))
+                    self.reset_res_card()
+        except queue.Empty:
+            pass
+        self.root.after(100, self.process_queue)
+
+    def format_size(self, size_bytes):
+        if size_bytes < 1024:
+            return f"{size_bytes} B"
+        elif size_bytes < 1048576:
+            return f"{size_bytes/1024:.1f} KB"
+        else:
+            return f"{size_bytes/1048576:.1f} MB"
+
+    def show_dir_results(self, results, duration, total_files):
+        # Clear results card
+        for widget in self.res_card.winfo_children():
+            widget.destroy()
+            
+        if not results:
+            tk.Label(self.res_card, text="No source files scanned or identified", font=('Inter', 12, 'bold'), fg=self.clr_dim, bg=self.clr_card).pack(pady=40)
+            return
+
+        # Sort languages by count
+        sorted_langs = sorted(results.items(), key=lambda x: x[1]['count'], reverse=True)
+        
+        # Display header info
+        header_frame = tk.Frame(self.res_card, bg=self.clr_card)
+        header_frame.pack(fill="x", pady=(0, 10))
+        
+        tk.Label(header_frame, text="SCAN COMPLETE", font=('Inter', 11, 'bold'), fg=self.clr_accent, bg=self.clr_card).pack(anchor="w")
+        tk.Label(header_frame, text=f"Analyzed {total_files} files in {duration:.2f}s (Avg {duration/total_files*1000:.1f}ms/file)", 
+                 font=('Inter', 9), fg=self.clr_dim, bg=self.clr_card).pack(anchor="w")
+
+        # Scrollable layout for breakdown
+        scroll_frame = tk.Frame(self.res_card, bg=self.clr_card)
+        scroll_frame.pack(fill="both", expand=True)
+        
+        canvas = tk.Canvas(scroll_frame, bg=self.clr_card, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(scroll_frame, orient="vertical", command=canvas.yview)
+        
+        list_frame = tk.Frame(canvas, bg=self.clr_card)
+        list_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=list_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Redraw bindings for mousewheel scrolling
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        list_frame.bind_all("<MouseWheel>", _on_mousewheel)
+
+        for lang, stats in sorted_langs:
+            cnt = stats['count']
+            sz = stats['size']
+            pct = (cnt / total_files) * 100
+            
+            lang_row = tk.Frame(list_frame, bg=self.clr_card, pady=6)
+            lang_row.pack(fill="x", expand=True)
+            
+            size_str = self.format_size(sz)
+            
+            tk.Label(lang_row, text=f"{lang.upper()}", font=('Inter', 10, 'bold'), fg=self.clr_text, bg=self.clr_card, width=15, anchor="w").pack(side="left")
+            tk.Label(lang_row, text=f"{cnt} files ({size_str})", font=('Inter', 9), fg=self.clr_dim, bg=self.clr_card, width=16, anchor="w").pack(side="left")
+            
+            # Draw beautiful percentage progress bar
+            bar_container = tk.Canvas(lang_row, height=8, bg="#333", highlightthickness=0)
+            bar_container.pack(side="left", fill="x", expand=True, padx=(10, 20))
+            
+            def draw_bar(event, cv=bar_container, p=pct):
+                cv.delete("all")
+                w = event.width
+                cv.create_rectangle(0, 0, w * (p/100), 8, fill=self.clr_accent, outline="")
+                
+            bar_container.bind("<Configure>", draw_bar)
+            
+            tk.Label(lang_row, text=f"{pct:.1f}%", font=('Inter', 9, 'bold'), fg=self.clr_accent, bg=self.clr_card, width=6, anchor="e").pack(side="right")
 
 if __name__ == "__main__":
     root = tk.Tk()

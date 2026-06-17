@@ -86,6 +86,8 @@ disambiguations:
     pattern: '^\{\s*(?:application|''application'')\s*,\s*(?:[a-z]+[\w@]*|''[^'']+'')\s*,\s*\[(?:.|[\r\n])*\]\s*\}\.[ \t]*$'
 - extensions: ['.as']
   rules:
+  - language: AngelScript
+    pattern: '^\s*#include\s+".+\.a[cs]s?"'
   - language: ActionScript
     pattern: '^\s*(?:package(?:\s+[\w.]+)?\s+(?:\{|$)|import\s+[\w.*]+\s*;|(?:intrinsic\s+)class\s+[\w<>.]+|\s+class\s+extends\s+[\w<>.]+|(?:(?:public|protected|private|static)\s+)*(?:(?:var|const|local)\s+\w+\s*:\s*[\w<>.]+(?:\s*=.*)?\s*;|function\s+\w+\s*\((?:\s*\w+\s*:\s*[\w<>.]+\s*(,\s*\w+\s*:\s*[\w<>.]+\s*)*)?\)))'
 - extensions: ['.asc']
@@ -119,12 +121,12 @@ disambiguations:
     - negative_pattern: '(?i)[ \t]*gosub '
   - language: BASIC
     pattern: '\A\s*\d'
-  - language: QuickBASIC
-    named_pattern: quickbasic
-  - language: VBA
-    named_pattern: vba
   - language: Visual Basic 6.0
     named_pattern: vb-module
+  - language: VBA
+    named_pattern: vba
+  - language: QuickBASIC
+    named_pattern: quickbasic
 - extensions: ['.bb']
   rules:
   - language: BlitzBasic
@@ -314,6 +316,15 @@ disambiguations:
     - pattern: '^\s*Begin\s+VB\.Form\s+'
   - language: INI
     pattern: '\ATYPE=VIEW'
+- extensions: ['.frag']
+  rules:
+  - language: GLSL
+    pattern:
+    - '^\s*(?:#version|precision|uniform|varying|attribute)\b'
+    - '\bvec[234]\b'
+    - '\bgl_Frag(?:Color|Coord|Data)\b'
+    - '\bsampler[123]D\b'
+  - language: JavaScript
 - extensions: ['.fs']
   rules:
   - language: Forth
@@ -358,7 +369,11 @@ disambiguations:
   - language: Gosu
     pattern: '^uses (java|gw)\.'
   - language: Genie
-    pattern: '^\[indent=[0-9]+\]'
+    pattern:
+    - '^\[indent=[0-9]+\]'
+    - '^init\b'
+    - '^class\s+\w+'
+    - '^\tdef\s+\w+'
 - extensions: ['.gsc']
   rules:
   - language: GSC
@@ -500,13 +515,19 @@ disambiguations:
   - language: MUF
     pattern: '^: '
   - language: M
-    pattern: '^\s*;'
+    pattern:
+    - '^[A-Za-z0-9%]+(?:\([^)]*\))?\s*;'
+    - '^\s*(?:set|write|quit|do|kill|new|for|if|else|halt|hang)\s+'
   - language: Wolfram Language
     and:
       - pattern: '\(\*'
       - pattern: '\*\)$'
   - language: MATLAB
-    pattern: '^\s*%'
+    pattern:
+    - '^\s*%'
+    - '^\s*function\s'
+    - '^\s*classdef\s'
+    - '\bend\s*$'
   - language: Limbo
     pattern: '^\w+\s*:\s*module\s*\{'
 - extensions: ['.m4']
@@ -689,7 +710,10 @@ disambiguations:
   - language: Pascal
     pattern: '^\s*end[.;]'
   - language: Puppet
-    pattern: '^\s+\w+\s+=>\s'
+    pattern:
+    - '^\s+\w+\s+=>\s'
+    - '^\s*(?:class|node|define)\s+\w+'
+    - '^\s*(?:include|require)\s+\w+'
 - extensions: ['.pro']
   rules:
   - language: Proguard
@@ -800,6 +824,16 @@ disambiguations:
   - language: Markdown
     # Markdown syntax for scdoc
     pattern: '^#+\s+(NAME|SYNOPSIS|DESCRIPTION)'
+- extensions: ['.sch']
+  rules:
+  - language: KiCad Schematic
+    pattern: '^EESchema Schematic'
+  - language: Eagle
+    pattern: '(?i:^\s*<!DOCTYPE\s+eagle\b|<eagle\b)'
+  - language: Scheme
+    pattern:
+    - '^\s*;'
+    - '^\s*\('
 - extensions: ['.scm']
   rules:
   - language: Tree-sitter Query
@@ -1056,6 +1090,14 @@ disambiguations:
   - language: JSON
     named_pattern: json
   - language: Yacc
+- extensions: ['.cake']
+  rules:
+  - language: CoffeeScript
+    pattern:
+    - '^\w+\s*=\s*require\s'
+    - '^\s*->\s*$'
+    - '^\{.*\}\s*=\s*require\b'
+  - language: 'C#'
 named_patterns:
   cpp:
   - '^\s*#\s*include <(cstdint|string|vector|map|list|array|bitset|queue|stack|forward_list|unordered_map|unordered_set|(i|o|io)stream)>'
